@@ -41,6 +41,10 @@ MOC3063 output is a zero-cross triac (typical 600 V, low trigger current). It is
 
 Mains here is 230 V, 50 Hz. The listing says AC 220 V. Both are the same class of supply for this board.
 
+## OTA and fleet memory
+
+ArduinoOTA listens on port **3232** with hostname **`esp32-4ch-thyristor`**. Status MQTT includes `ip` and `ota_port` so the monorepo tool [scripts/status/device_fleet.py](../../../scripts/status/device_fleet.py) can remember the board and flash after a PlatformIO compile. OTA start forces every channel off before the firmware image is written. Reboot after OTA also boots with every channel off.
+
 ## GPIO map
 
 Not published. The four MOC3063 LEDs are wired to ESP32 GPIOs that are not named on the silkscreen next to the triacs.

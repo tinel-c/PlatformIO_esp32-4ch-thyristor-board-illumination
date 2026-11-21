@@ -13,10 +13,14 @@
 
 namespace {
 
-constexpr char kFirmwareVersion[] = "0.1.0";
+constexpr char kFirmwareVersion[] = "0.2.0";
 constexpr char kClientId[] = "PlatformIO_esp32-4ch-thyristor-board-illumination";
+constexpr char kDhcpHostname[] = "esp32-4ch-thyristor";
 constexpr char kStatusTopic[] = "illumination/4ch-thyristor/status";
 constexpr char kCommandTopic[] = "illumination/4ch-thyristor/command/set";
+constexpr char kOtaStatusTopic[] = "illumination/4ch-thyristor/ota/status";
+constexpr char kOtaProgressTopic[] = "illumination/4ch-thyristor/ota/progress";
+constexpr uint16_t kOtaPort = 3232;
 constexpr uint32_t kStatusIntervalMs = 30000;
 constexpr uint32_t kWifiRetryMs = 5000;
 
@@ -28,6 +32,7 @@ bool gChannelOn[4] = {false, false, false, false};
 uint32_t gLastStatusMs = 0;
 uint32_t gLastWifiAttemptMs = 0;
 bool gStatusDirty = true;
+bool gOtaActive = false;
 
 int levelFor(bool on) {
     return on ? CHANNEL_ACTIVE_LEVEL : CHANNEL_IDLE_LEVEL;
@@ -48,28 +53,42 @@ void driveOutputs() {
     }
 }
 
+void publishRaw(const char* topic, const char* payload) {
+    if (!gMqtt.connected()) {
+        return;
+    }
+    gMqtt.publish(topic, payload, false);
+}
+
 void publishStatus() {
     if (!gMqtt.connected()) {
         return;
     }
-    char payload[512];
+    const IPAddress ip = WiFi.localIP();
+    char payload[640];
     snprintf(
         payload,
         sizeof(payload),
         "{\"device\":\"%s\",\"fw\":\"%s\",\"outputs_enabled\":%s,"
+        "\"ip\":\"%u.%u.%u.%u\",\"ota_port\":%u,"
         "\"channels\":[{\"id\":1,\"state\":\"%s\"},{\"id\":2,\"state\":\"%s\"},"
         "{\"id\":3,\"state\":\"%s\"},{\"id\":4,\"state\":\"%s\"}],"
         "\"uptime_s\":%lu,\"rssi\":%d}",
         kClientId,
         kFirmwareVersion,
         BOARD_PINS_CONFIRMED ? "true" : "false",
+        ip[0],
+        ip[1],
+        ip[2],
+        ip[3],
+        static_cast<unsigned>(kOtaPort),
         gChannelOn[0] ? "on" : "off",
         gChannelOn[1] ? "on" : "off",
         gChannelOn[2] ? "on" : "off",
         gChannelOn[3] ? "on" : "off",
         static_cast<unsigned long>(millis() / 1000UL),
         WiFi.RSSI());
-    gMqtt.publish(kStatusTopic, payload, false);
+    publishRaw(kStatusTopic, payload);
     gStatusDirty = false;
     gLastStatusMs = millis();
 }
@@ -96,6 +115,10 @@ void allOff() {
 
 // Accepts {"channel":1,"state":"on"} and {"channel":0,"state":"off"}.
 void handleCommand(const char* payload) {
+    if (gOtaActive) {
+        Serial.println("command ignored: OTA in progress");
+        return;
+    }
     const char* channelKey = strstr(payload, "\"channel\"");
     const char* stateKey = strstr(payload, "\"state\"");
     if (channelKey == nullptr || stateKey == nullptr) {
@@ -186,14 +209,66 @@ void setupOutputsOff() {
     }
 }
 
+void publishOtaStatus(const char* state, const char* detail) {
+    char payload[256];
+    snprintf(
+        payload,
+        sizeof(payload),
+        "{\"device\":\"%s\",\"fw\":\"%s\",\"state\":\"%s\",\"detail\":\"%s\"}",
+        kClientId,
+        kFirmwareVersion,
+        state,
+        detail);
+    publishRaw(kOtaStatusTopic, payload);
+}
+
+void publishOtaProgress(unsigned int progress, unsigned int total) {
+    char payload[192];
+    const unsigned int pct = total > 0 ? (progress * 100U) / total : 0U;
+    snprintf(
+        payload,
+        sizeof(payload),
+        "{\"device\":\"%s\",\"progress\":%u,\"total\":%u,\"percent\":%u}",
+        kClientId,
+        progress,
+        total,
+        pct);
+    publishRaw(kOtaProgressTopic, payload);
+}
+
 void setupOta() {
-    ArduinoOTA.setHostname(kClientId);
+    ArduinoOTA.setHostname(kDhcpHostname);
+    ArduinoOTA.setPort(kOtaPort);
 #if defined(OTA_PASSWORD)
     ArduinoOTA.setPassword(OTA_PASSWORD);
 #endif
-    ArduinoOTA.onStart([]() { Serial.println("OTA start"); });
-    ArduinoOTA.onEnd([]() { Serial.println("OTA end"); });
-    ArduinoOTA.onError([](ota_error_t error) { Serial.printf("OTA error %u\n", error); });
+    ArduinoOTA.onStart([]() {
+        gOtaActive = true;
+        allOff();
+        Serial.println("OTA start — channels forced off");
+        publishOtaStatus("started", "channels_off");
+    });
+    ArduinoOTA.onEnd([]() {
+        Serial.println("OTA end");
+        publishOtaStatus("completed", "rebooting");
+        gOtaActive = false;
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        static unsigned int lastPct = 101;
+        const unsigned int pct = total > 0 ? (progress * 100U) / total : 0U;
+        if (pct != lastPct && (pct % 10U == 0U || pct == 100U)) {
+            lastPct = pct;
+            publishOtaProgress(progress, total);
+            Serial.printf("OTA %u%%\n", pct);
+        }
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+        gOtaActive = false;
+        char detail[32];
+        snprintf(detail, sizeof(detail), "error_%u", static_cast<unsigned>(error));
+        Serial.printf("OTA error %u\n", error);
+        publishOtaStatus("error", detail);
+    });
     ArduinoOTA.begin();
 }
 
@@ -208,13 +283,13 @@ void setup() {
     setupOutputsOff();
 
     WiFi.mode(WIFI_STA);
-    WiFi.setHostname("esp32-4ch-thyristor");
+    WiFi.setHostname(kDhcpHostname);
     WiFi.setAutoReconnect(true);
     ensureWifi();
 
     gMqtt.setServer(MQTT_HOST, MQTT_PORT);
     gMqtt.setCallback(onMqttMessage);
-    gMqtt.setBufferSize(512);
+    gMqtt.setBufferSize(768);
 
     setupOta();
 }
@@ -225,7 +300,8 @@ void loop() {
         ArduinoOTA.handle();
         ensureMqtt();
         gMqtt.loop();
-        if (gMqtt.connected() && (gStatusDirty || millis() - gLastStatusMs >= kStatusIntervalMs)) {
+        if (!gOtaActive && gMqtt.connected() &&
+            (gStatusDirty || millis() - gLastStatusMs >= kStatusIntervalMs)) {
             publishStatus();
         }
     }
