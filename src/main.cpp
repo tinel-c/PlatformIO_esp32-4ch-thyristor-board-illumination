@@ -13,7 +13,7 @@
 
 namespace {
 
-constexpr char kFirmwareVersion[] = "0.2.0";
+constexpr char kFirmwareVersion[] = "0.2.1";
 constexpr char kClientId[] = "PlatformIO_esp32-4ch-thyristor-board-illumination";
 constexpr char kDhcpHostname[] = "esp32-4ch-thyristor";
 constexpr char kStatusTopic[] = "illumination/4ch-thyristor/status";

@@ -10,9 +10,8 @@ This repository is the firmware submodule used by [ServerBootShutdownManagememen
 
 The board is powered from 230 V AC and the outputs are live mains. Treat every terminal as live once the input is connected.
 
-- First flash and GPIO tracing happen with the mains unplugged.
-- `BOARD_PINS_CONFIRMED` in [include/board_pins.h](include/board_pins.h) ships as `0`. MQTT commands are remembered and reported, but no GPIO is driven, so a wrong pin cannot turn a channel on.
-- Set the four channel GPIOs only after each MOC3063 input is traced to a header pin. Then set `BOARD_PINS_CONFIRMED` to `1`.
+- Channel gates (confirmed): RY1=IO32, RY2=IO26, RY3=IO27, RY4=IO12; status LED=IO5 — see [include/board_pins.h](include/board_pins.h) (`BOARD_PINS_CONFIRMED 1`).
+- First live tests: one low-power resistive lamp, AC input last.
 - Boot, every reboot, and every OTA start force all four channels off. Command messages are not retained, and the firmware does not restore a previous state.
 - Confirm the Serial Burn header voltage on the silkscreen before tying a USB-UART adapter's VCC into that header. The ESP32-WROOM-32E module supply is 3.3 V. A pin marked 5 V is only safe if it feeds the onboard regulator, not the module.
 
@@ -35,8 +34,8 @@ Status, every 30 s and after each command:
 ```json
 {
   "device": "PlatformIO_esp32-4ch-thyristor-board-illumination",
-  "fw": "0.2.0",
-  "outputs_enabled": false,
+  "fw": "0.2.1",
+  "outputs_enabled": true,
   "ip": "192.168.2.61",
   "ota_port": 3232,
   "channels": [
@@ -50,7 +49,7 @@ Status, every 30 s and after each command:
 }
 ```
 
-`ip` and `ota_port` are required by the monorepo fleet tool for automatic OTA. `outputs_enabled` is false until the pin map is confirmed. `state` is the commanded state either way.
+`ip` and `ota_port` are required by the monorepo fleet tool for automatic OTA. With the confirmed pin map, `outputs_enabled` is true and MQTT commands drive the triac gates. `state` is the commanded channel state.
 
 Commands:
 

@@ -30,7 +30,7 @@ Seller description image (annotated top view) and the bench photo at 230 V:
 - **ESP32:** module soldered on the logic side. Two breakout headers carry spare GPIOs (IO0, IO2, IO4, IO5, IO12–IO19, IO21–IO23 and the high GPIOs are visible; read the silkscreen on the real board). Those headers are not a labelled map of the four triac gates.
 - **Serial Burn header:** six pads. The photo reads as GND, GND, IO0, RXD, TXD, and a supply pin that looks like **5V**. Confirm that last label on the physical board before connecting an adapter. ESP32-WROOM-32E VDD is 3.0–3.6 V. If the pad is 5 V it must be the regulator input, not the module pin.
 - **Buttons:** BOOT (IO0) and Reset (EN).
-- **LEDs:** power indicator (likely the 3.3 V rail) and a working-status indicator.
+- **LEDs:** power indicator (likely the 3.3 V rail) and a working-status indicator on **IO5** (firmware drives it when any channel is on).
 - **Protection visible on the mains side:** varistor across the input, safety capacitor, and the isolation slot. The BT137S tabs are the triac main terminal (T2) and are live. Do not probe them with a grounded instrument while the board is powered.
 
 ## Electrical limits
@@ -47,18 +47,19 @@ ArduinoOTA listens on port **3232** with hostname **`esp32-4ch-thyristor`**. Sta
 
 ## GPIO map
 
-Not published. The four MOC3063 LEDs are wired to ESP32 GPIOs that are not named on the silkscreen next to the triacs.
+Confirmed channel gates (seller silk **RY1–RY4** → ESP32 GPIO), set in [include/board_pins.h](../include/board_pins.h) with `BOARD_PINS_CONFIRMED 1`:
 
-Bring-up, mains unplugged:
+| Channel | Silk | GPIO |
+|---------|------|------|
+| 1 | RY1 | IO32 |
+| 2 | RY2 | IO26 |
+| 3 | RY3 | IO27 |
+| 4 | RY4 | IO12 |
+| Status LED | — | IO5 |
 
-1. Continuity from each MOC3063 LED anode/cathode resistor to a GPIO on the breakout.
-2. Write those four numbers into `include/board_pins.h`.
-3. Set `BOARD_PINS_CONFIRMED` to `1` and flash again.
-4. Only then connect a lamp and the AC input.
+GPIO12 is an ESP32 strapping pin (MTDI). Leave it low at reset so flash voltage mode stays correct; the firmware holds every channel idle (low) from boot. IO0 stays the boot strap; this firmware does not reuse the factory button demo.
 
-Until step 3, this firmware never calls `pinMode` or `digitalWrite` on a channel pin. IO0 stays the boot strap; this firmware does not reuse the factory button demo.
-
-Active level defaults to GPIO high = channel on, which is the usual MOC3063 LED wiring. If a channel turns on when the pin is low, swap `CHANNEL_ACTIVE_LEVEL` / `CHANNEL_IDLE_LEVEL` in `board_pins.h`. Boot still forces every channel off before Wi-Fi starts.
+Active level is GPIO high = channel on. If a channel turns on when the pin is low, swap `CHANNEL_ACTIVE_LEVEL` / `CHANNEL_IDLE_LEVEL` in `board_pins.h`. Boot and OTA start still force every channel off.
 
 ## References
 
