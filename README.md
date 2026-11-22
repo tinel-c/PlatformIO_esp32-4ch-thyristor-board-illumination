@@ -85,7 +85,7 @@ After Wi-Fi connects, serial should show `OTA listening on <ip>:3232`. ArduinoOT
 
 ### Later updates (automatic OTA after build)
 
-When this repo is a submodule of ServerBootShutdownManagemement, a successful **`pio run -e esp32dev`** (build, not Upload) produces `firmware.bin` and then runs [scripts/ota_after_build.py](scripts/ota_after_build.py). That script calls:
+When this repo is a submodule of ServerBootShutdownManagemement, a successful **`pio run -e esp32dev`** (build, not Upload) produces `firmware.bin` and then runs [scripts/ota_after_build.py](scripts/ota_after_build.py). That script calls the monorepo hook `scripts/status/fleet_ota_hook.py`, which runs:
 
 ```bash
 python scripts/status/device_fleet.py flash \
