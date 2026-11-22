@@ -4,6 +4,8 @@
 #include <WiFi.h>
 
 #include "board_pins.h"
+#include "sms_watchdog_client.h"
+#include "wifi_status_led.h"
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -13,7 +15,7 @@
 
 namespace {
 
-constexpr char kFirmwareVersion[] = "0.2.2";
+constexpr char kFirmwareVersion[] = "0.2.7";
 constexpr char kClientId[] = "PlatformIO_esp32-4ch-thyristor-board-illumination";
 constexpr char kDhcpHostname[] = "esp32-4ch-thyristor";
 constexpr char kStatusTopic[] = "illumination/4ch-thyristor/status";
@@ -23,6 +25,7 @@ constexpr char kOtaProgressTopic[] = "illumination/4ch-thyristor/ota/progress";
 constexpr uint16_t kOtaPort = 3232;
 constexpr uint32_t kStatusIntervalMs = 30000;
 constexpr uint32_t kWifiRetryMs = 5000;
+constexpr unsigned kWatchdogIntervalS = SMS_WATCHDOG_DEFAULT_INTERVAL_S;
 
 constexpr int kChannelPins[4] = {PIN_CH1, PIN_CH2, PIN_CH3, PIN_CH4};
 
@@ -35,7 +38,7 @@ bool gStatusDirty = true;
 bool gOtaActive = false;
 bool gOtaReady = false;
 
-int levelFor(bool on) {
+int channelLevel(bool on) {
     return on ? CHANNEL_ACTIVE_LEVEL : CHANNEL_IDLE_LEVEL;
 }
 
@@ -45,12 +48,8 @@ void driveOutputs() {
     }
     for (int i = 0; i < 4; ++i) {
         if (kChannelPins[i] >= 0) {
-            digitalWrite(kChannelPins[i], levelFor(gChannelOn[i]));
+            digitalWrite(kChannelPins[i], channelLevel(gChannelOn[i]));
         }
-    }
-    if (PIN_STATUS_LED >= 0) {
-        const bool anyOn = gChannelOn[0] || gChannelOn[1] || gChannelOn[2] || gChannelOn[3];
-        digitalWrite(PIN_STATUS_LED, levelFor(anyOn));
     }
 }
 
@@ -189,6 +188,7 @@ void ensureMqtt() {
         return;
     }
     gMqtt.subscribe(kCommandTopic, 1);
+    smsWatchdogRegister(gMqtt, kClientId, kWatchdogIntervalS);
     gStatusDirty = true;
     Serial.println("MQTT connected");
 }
@@ -206,7 +206,7 @@ void setupOutputsOff() {
     }
     if (PIN_STATUS_LED >= 0) {
         pinMode(PIN_STATUS_LED, OUTPUT);
-        digitalWrite(PIN_STATUS_LED, CHANNEL_IDLE_LEVEL);
+        digitalWrite(PIN_STATUS_LED, LED_IDLE_LEVEL);
     }
 }
 
@@ -250,6 +250,8 @@ void configureOta() {
         publishOtaStatus("started", "channels_off");
     });
     ArduinoOTA.onEnd([]() {
+        // IO12 (RY4) is a strapping pin. Hold it low before reboot.
+        digitalWrite(PIN_CH4, LOW);
         Serial.println("OTA end");
         publishOtaStatus("completed", "rebooting");
         gOtaActive = false;
@@ -328,9 +330,11 @@ void loop() {
         if (!gOtaActive && gMqtt.connected() &&
             (gStatusDirty || millis() - gLastStatusMs >= kStatusIntervalMs)) {
             publishStatus();
+            smsWatchdogRegister(gMqtt, kClientId, kWatchdogIntervalS);
         }
     } else {
         ensureOta();
     }
+    updateWifiStatusLed(gLastWifiAttemptMs);
     delay(10);
 }

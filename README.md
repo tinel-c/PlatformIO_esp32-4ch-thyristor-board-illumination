@@ -10,7 +10,7 @@ This repository is the firmware submodule used by [ServerBootShutdownManagememen
 
 The board is powered from 230 V AC and the outputs are live mains. Treat every terminal as live once the input is connected.
 
-- Channel gates (confirmed): RY1=IO32, RY2=IO26, RY3=IO27, RY4=IO12; status LED=IO5 — see [include/board_pins.h](include/board_pins.h) (`BOARD_PINS_CONFIRMED 1`).
+- Channel gates (confirmed): RY1=IO32, RY2=IO25, RY3=IO27, RY4=IO12, active-high. Blue LED IO5 is the Wi-Fi indicator — see [include/board_pins.h](include/board_pins.h) (`BOARD_PINS_CONFIRMED 1`).
 - First live tests: one low-power resistive lamp, AC input last.
 - Boot, every reboot, and every OTA start force all four channels off. Command messages are not retained, and the firmware does not restore a previous state.
 - Confirm the Serial Burn header voltage on the silkscreen before tying a USB-UART adapter's VCC into that header. The ESP32-WROOM-32E module supply is 3.3 V. A pin marked 5 V is only safe if it feeds the onboard regulator, not the module.
@@ -27,15 +27,19 @@ Broker default is the automation server: `192.168.2.4:1883`, anonymous (Mosquitt
 | Command | `illumination/4ch-thyristor/command/set` (QoS 1, not retained) |
 | OTA status | `illumination/4ch-thyristor/ota/status` |
 | OTA progress | `illumination/4ch-thyristor/ota/progress` |
+| SMS watchdog | `sms/gateway/watchdog/enroll` + `heartbeat` (via `sms_watchdog_client.h`) |
+| Wi-Fi LED | IO5, active-low, [include/wifi_status_led.h](include/wifi_status_led.h) |
 | DHCP / ArduinoOTA hostname | `esp32-4ch-thyristor` |
 | OTA port | 3232 |
+
+On MQTT connect and every status publish (`fw` ≥ 0.2.3), the board enrolls and heartbeats to the SMS gateway watchdog with `name` = client id and `interval` 60 s. See monorepo [MQTT_PROTOCOL.md](../../docs/MQTT_PROTOCOL.md).
 
 Status, every 30 s and after each command:
 
 ```json
 {
   "device": "PlatformIO_esp32-4ch-thyristor-board-illumination",
-  "fw": "0.2.2",
+  "fw": "0.2.7",
   "outputs_enabled": true,
   "ip": "192.168.2.61",
   "ota_port": 3232,

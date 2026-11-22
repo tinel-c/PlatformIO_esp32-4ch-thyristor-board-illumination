@@ -30,7 +30,7 @@ Seller description image (annotated top view) and the bench photo at 230 V:
 - **ESP32:** module soldered on the logic side. Two breakout headers carry spare GPIOs (IO0, IO2, IO4, IO5, IO12–IO19, IO21–IO23 and the high GPIOs are visible; read the silkscreen on the real board). Those headers are not a labelled map of the four triac gates.
 - **Serial Burn header:** six pads. The photo reads as GND, GND, IO0, RXD, TXD, and a supply pin that looks like **5V**. Confirm that last label on the physical board before connecting an adapter. ESP32-WROOM-32E VDD is 3.0–3.6 V. If the pad is 5 V it must be the regulator input, not the module pin.
 - **Buttons:** BOOT (IO0) and Reset (EN).
-- **LEDs:** power indicator (likely the 3.3 V rail) and a working-status indicator on **IO5** (firmware drives it when any channel is on).
+- **LEDs:** power indicator (likely the 3.3 V rail) and a blue Wi-Fi indicator on **IO5**.
 - **Protection visible on the mains side:** varistor across the input, safety capacitor, and the isolation slot. The BT137S tabs are the triac main terminal (T2) and are live. Do not probe them with a grounded instrument while the board is powered.
 
 ## Electrical limits
@@ -56,14 +56,23 @@ Confirmed channel gates (seller silk **RY1–RY4** → ESP32 GPIO), set in [incl
 | Channel | Silk | GPIO |
 |---------|------|------|
 | 1 | RY1 | IO32 |
-| 2 | RY2 | IO26 |
+| 2 | RY2 | IO25 |
 | 3 | RY3 | IO27 |
 | 4 | RY4 | IO12 |
 | Status LED | — | IO5 |
 
-GPIO12 is an ESP32 strapping pin (MTDI). Leave it low at reset so flash voltage mode stays correct; the firmware holds every channel idle (low) from boot. IO0 stays the boot strap; this firmware does not reuse the factory button demo.
+GPIO12 is an ESP32 strapping pin (MTDI). Leave it low at reset so flash voltage mode stays correct; the firmware holds every channel idle (low) from boot and drives IO12 low again before an OTA reboot. IO0 stays the boot strap; this firmware does not reuse the factory button demo.
 
-Active level is GPIO high = channel on. If a channel turns on when the pin is low, swap `CHANNEL_ACTIVE_LEVEL` / `CHANNEL_IDLE_LEVEL` in `board_pins.h`. Boot and OTA start still force every channel off.
+Active level is GPIO high = channel on. Boot and OTA start still force every channel off.
+
+The blue LED on IO5 lights when the pin is low. It shows Wi-Fi only. The patterns are the fleet standard in [include/wifi_status_led.h](../include/wifi_status_led.h) (template: `device/templates/platformio-esp32/include/wifi_status_led.h`):
+
+| Pattern | Meaning |
+|---------|---------|
+| On, short wink every 2 s | Associated |
+| Fast blink (100 ms) for 3 s after each join | Joining the AP |
+| 500 ms blink | Not associated, waiting to retry |
+| Two short flashes | No SSID, connect failed, or link lost |
 
 ## References
 
