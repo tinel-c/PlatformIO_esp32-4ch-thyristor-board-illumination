@@ -14,6 +14,7 @@ The board is powered from 230 V AC and the outputs are live mains. Treat every t
 - First live tests: one low-power resistive lamp, AC input last.
 - Boot, every reboot, and every OTA start force all four channels off. Command messages are not retained, and the firmware does not restore a previous state.
 - Confirm the Serial Burn header voltage on the silkscreen before tying a USB-UART adapter's VCC into that header. The ESP32-WROOM-32E module supply is 3.3 V. A pin marked 5 V is only safe if it feeds the onboard regulator, not the module.
+- Prefer **230 V L/N** for normal run. USB-UART 5 V alone often brownouts when Wi-Fi transmits (`Brownout detector was triggered`); that prevents MQTT and OTA.
 
 ## MQTT
 
@@ -34,7 +35,7 @@ Status, every 30 s and after each command:
 ```json
 {
   "device": "PlatformIO_esp32-4ch-thyristor-board-illumination",
-  "fw": "0.2.1",
+  "fw": "0.2.2",
   "outputs_enabled": true,
   "ip": "192.168.2.61",
   "ota_port": 3232,
@@ -65,22 +66,26 @@ Commands:
 
 Requirements: [PlatformIO](https://platformio.org/) (CLI or the IDE extension).
 
-### First flash (UART)
+### First flash (UART) — required once
 
-There is no USB connector. Use the **Serial Burn** header (GND, IO0, RXD, TXD, and a power pin). Hold BOOT (IO0), tap Reset (EN), then release BOOT. Cross RX/TX with the adapter.
+Until this firmware is on the board, there is no MQTT `ip` and automatic OTA cannot run (`device offline or sighting stale` is expected). Use the **Serial Burn** header (GND, IO0, RXD, TXD, and a power pin). Hold BOOT (IO0), tap Reset (EN), then release BOOT. Cross RX/TX with the adapter.
 
 ```bash
 cp include/secrets.h.example include/secrets.h
 # edit Wi-Fi credentials in include/secrets.h
+# If a live board already has a fleet IP, skip post-build OTA during UART flash:
+#   SKIP_FLEET_OTA=1 pio run -e esp32dev -t upload --upload-port COMx
 pio run -e esp32dev -t upload --upload-port COMx
 pio device monitor -b 115200
 ```
 
-(`upload_protocol = espota` is set for later updates; for the first wired flash pass `--upload-protocol esptool` if your PlatformIO build of the project requires it.)
+`upload_protocol` is **esptool** (serial). The IDE Upload button uses the same path — pick the adapter COM port in PlatformIO.
 
-### Later updates (automatic OTA)
+After Wi-Fi connects, serial should show `OTA listening on <ip>:3232`. ArduinoOTA binds only once STA has an IP (fw ≥ 0.2.2); binding earlier left UDP 3232 silent.
 
-When this repo is a submodule of ServerBootShutdownManagemement, a successful `pio run -e esp32dev` builds `firmware.bin` and then runs [scripts/ota_after_build.py](scripts/ota_after_build.py). That script calls:
+### Later updates (automatic OTA after build)
+
+When this repo is a submodule of ServerBootShutdownManagemement, a successful **`pio run -e esp32dev`** (build, not Upload) produces `firmware.bin` and then runs [scripts/ota_after_build.py](scripts/ota_after_build.py). That script calls:
 
 ```bash
 python scripts/status/device_fleet.py flash \
@@ -88,13 +93,17 @@ python scripts/status/device_fleet.py flash \
   --bin .pio/build/esp32dev/firmware.bin
 ```
 
-in the monorepo. The fleet tool refreshes MQTT sightings into `scripts/status/device_fleet_state.json` and runs `espota.py` when the board published a fresh `ip` within the timeout. Offline or missing IP leaves the `.bin` and still exits successfully. A failed OTA to a live board fails the post-build step.
+in the monorepo. The fleet tool refreshes MQTT sightings into `scripts/status/device_fleet_state.json` and runs `espota.py` when the board published a fresh `ip` within the timeout. Offline or missing IP leaves the `.bin` and still exits **successfully** (do not use PlatformIO Upload for OTA). A failed OTA to a live board fails the post-build step.
+
+On Windows, local `espota` often gets past the UDP invite then fails with `No response from device` because the firewall blocks the ESP’s TCP callback. The fleet tool retries over SSH on `192.168.2.4` (`FLEET_OTA_VIA=auto`; force with `broker` or `local`). Set `SKIP_FLEET_OTA=1` to leave the `.bin` without flashing (useful when UART-flashing a fix).
 
 Keep the sighting warm while developing:
 
 ```bash
 # from the monorepo root
 python scripts/status/device_fleet.py watch
+# or one shot:
+python scripts/status/device_fleet.py status
 ```
 
 An optional OTA password can be set via `OTA_PASSWORD` in `include/secrets.h` (and passed to the fleet tool with `--password` or `OTA_PASSWORD` in the environment).

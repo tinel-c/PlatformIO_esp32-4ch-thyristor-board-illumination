@@ -9,11 +9,13 @@ ServerBootShutdownManagemement, a successful build calls:
 
 A standalone clone of this firmware repo skips OTA and prints the .bin path.
 Offline / missing IP is a soft success (exit 0). A failed espota to a live
-device fails the post step.
+device fails the post step. Set SKIP_FLEET_OTA=1 to leave the .bin without
+calling the fleet tool (UART flash of an OTA fix, etc.).
 """
 
 Import("env")  # type: ignore[name-defined]  # noqa: F821 — PlatformIO injects this
 
+import os
 import shutil
 import subprocess
 import sys
@@ -57,6 +59,9 @@ def _python_cmd() -> list:
 
 def after_build(source, target, env):  # noqa: ARG001
     firmware = Path(str(target[0]))
+    if os.environ.get("SKIP_FLEET_OTA") == "1":
+        print("ota_after_build: SKIP_FLEET_OTA=1 — leaving {}".format(firmware))
+        return
     # PROJECT_DIR is device/<name> when this is a monorepo submodule.
     project_dir = Path(env["PROJECT_DIR"]).resolve()
     monorepo = project_dir.parent.parent

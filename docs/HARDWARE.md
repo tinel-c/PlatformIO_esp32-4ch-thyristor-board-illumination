@@ -41,9 +41,13 @@ MOC3063 output is a zero-cross triac (typical 600 V, low trigger current). It is
 
 Mains here is 230 V, 50 Hz. The listing says AC 220 V. Both are the same class of supply for this board.
 
+## Power for Wi-Fi and OTA
+
+The board’s AC-DC supply from **L/N** is the normal run path. Flashing or monitoring from Serial Burn alone (USB-UART 5 V) often trips the ESP32 brownout detector when Wi-Fi TX starts. A brownout loop never publishes MQTT `ip`, so fleet OTA cannot run. Use mains for soak tests; for UART flash, GND/RX/TX (+ BOOT/Reset) is enough if mains already powers the board — do not back-feed 5 V from the adapter onto a live board.
+
 ## OTA and fleet memory
 
-ArduinoOTA listens on port **3232** with hostname **`esp32-4ch-thyristor`**. Status MQTT includes `ip` and `ota_port` so the monorepo tool [scripts/status/device_fleet.py](../../../scripts/status/device_fleet.py) can remember the board and flash after a PlatformIO compile. OTA start forces every channel off before the firmware image is written. Reboot after OTA also boots with every channel off.
+ArduinoOTA hostname **`esp32-4ch-thyristor`**, UDP/TCP port **3232**. Firmware ≥ **0.2.2** calls `ArduinoOTA.begin()` only after STA has an IP; earlier builds bound too early and never answered invitations. Idle OTA is UDP (a TCP connect probe to 3232 may show closed). Status MQTT includes `ip` and `ota_port` for [scripts/status/device_fleet.py](../../../scripts/status/device_fleet.py). OTA start and reboot force every channel off.
 
 ## GPIO map
 

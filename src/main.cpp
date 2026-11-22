@@ -13,7 +13,7 @@
 
 namespace {
 
-constexpr char kFirmwareVersion[] = "0.2.1";
+constexpr char kFirmwareVersion[] = "0.2.2";
 constexpr char kClientId[] = "PlatformIO_esp32-4ch-thyristor-board-illumination";
 constexpr char kDhcpHostname[] = "esp32-4ch-thyristor";
 constexpr char kStatusTopic[] = "illumination/4ch-thyristor/status";
@@ -33,6 +33,7 @@ uint32_t gLastStatusMs = 0;
 uint32_t gLastWifiAttemptMs = 0;
 bool gStatusDirty = true;
 bool gOtaActive = false;
+bool gOtaReady = false;
 
 int levelFor(bool on) {
     return on ? CHANNEL_ACTIVE_LEVEL : CHANNEL_IDLE_LEVEL;
@@ -236,7 +237,7 @@ void publishOtaProgress(unsigned int progress, unsigned int total) {
     publishRaw(kOtaProgressTopic, payload);
 }
 
-void setupOta() {
+void configureOta() {
     ArduinoOTA.setHostname(kDhcpHostname);
     ArduinoOTA.setPort(kOtaPort);
 #if defined(OTA_PASSWORD)
@@ -269,7 +270,30 @@ void setupOta() {
         Serial.printf("OTA error %u\n", error);
         publishOtaStatus("error", detail);
     });
+}
+
+// ArduinoOTA.begin() before STA has an IP leaves port 3232 closed; bind once online.
+void ensureOta() {
+    if (WiFi.status() != WL_CONNECTED) {
+        if (gOtaReady) {
+            ArduinoOTA.end();
+            gOtaReady = false;
+        }
+        return;
+    }
+    if (gOtaReady) {
+        return;
+    }
     ArduinoOTA.begin();
+    gOtaReady = true;
+    const IPAddress ip = WiFi.localIP();
+    Serial.printf(
+        "OTA listening on %u.%u.%u.%u:%u\n",
+        ip[0],
+        ip[1],
+        ip[2],
+        ip[3],
+        kOtaPort);
 }
 
 }  // namespace
@@ -291,12 +315,13 @@ void setup() {
     gMqtt.setCallback(onMqttMessage);
     gMqtt.setBufferSize(768);
 
-    setupOta();
+    configureOta();
 }
 
 void loop() {
     ensureWifi();
     if (WiFi.status() == WL_CONNECTED) {
+        ensureOta();
         ArduinoOTA.handle();
         ensureMqtt();
         gMqtt.loop();
@@ -304,6 +329,8 @@ void loop() {
             (gStatusDirty || millis() - gLastStatusMs >= kStatusIntervalMs)) {
             publishStatus();
         }
+    } else {
+        ensureOta();
     }
     delay(10);
 }
